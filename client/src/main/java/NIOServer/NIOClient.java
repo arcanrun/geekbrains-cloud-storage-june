@@ -5,9 +5,12 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
+import java.io.File;
 import java.io.IOException;
+import java.io.RandomAccessFile;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -64,9 +67,10 @@ public class NIOClient extends JFrame implements ActionListener {
                     StringBuilder filesListStr = new StringBuilder();
                     int read = socketChannel.read(buf);
 
-                    while (read != -1){
+                    while (read != -1) {
                         buf.flip();
                         byte firstByte = buf.get();
+                        System.out.println("-->" + firstByte);
                         if (firstByte == 11) {
                             while (buf.hasRemaining()) {
                                 filesListStr.append((char) buf.get());
@@ -79,9 +83,20 @@ public class NIOClient extends JFrame implements ActionListener {
 
                         if (firstByte == 12) {
                             //download file
-                            while (buf.hasRemaining()){
-                                System.out.print((char)buf.get());
+                            int fileNameLength = buf.get();
+                            StringBuilder fileName = new StringBuilder();
+                            System.out.println(fileNameLength);
+                            for (int i = 0; i < fileNameLength; i++) {
+                                fileName.append((char) buf.get());
                             }
+                            System.out.println("FILE NAME: " + fileName.toString());
+                            RandomAccessFile raf = new RandomAccessFile(fileSaverPath + File.separator + fileName, "rw");
+                            ;
+                            FileChannel channel = raf.getChannel();
+
+
+                            channel.write(buf);
+
 
                         }
 
@@ -118,18 +133,14 @@ public class NIOClient extends JFrame implements ActionListener {
 
 
             if (selectedFile != null) {
-                buf.clear();
-                buf.put(selectedFile.getBytes());
-                buf.flip();
-
                 try {
-                    while (buf.hasRemaining()) {
-                        socketChannel.write(buf);
-                    }
+                    socketChannel.write(ByteBuffer.wrap(selectedFile.getBytes()));
                 } catch (IOException ioException) {
                     ioException.printStackTrace();
                 }
             }
+
         }
     }
 }
+

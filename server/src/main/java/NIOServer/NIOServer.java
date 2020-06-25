@@ -109,6 +109,7 @@ public class NIOServer implements Runnable {
 
         buffer.put((byte) 11);
         buffer.put(ByteBuffer.wrap(serverFiles.toString().substring(1, serverFiles.toString().length() - 1).getBytes()));
+        buffer.flip();
         channel.write(buffer);
 
 
@@ -136,10 +137,13 @@ public class NIOServer implements Runnable {
 
                     RandomAccessFile raf = new RandomAccessFile(file.toString(), "rw");
                     FileChannel inChanel = raf.getChannel();
+                    byte[] fileNameBytes = file.getFileName().toString().getBytes();
                     buffer.clear();
                     buffer.put((byte) 12);
-//                    inChanel.read(buffer);
-
+                    buffer.put((byte) fileNameBytes.length);
+                    buffer.put(fileNameBytes);
+                    inChanel.read(buffer);
+                    buffer.flip();
                     socketChannel.write(buffer);
 
                     return FileVisitResult.TERMINATE;
