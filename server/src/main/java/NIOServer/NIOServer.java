@@ -19,7 +19,7 @@ public class NIOServer implements Runnable {
     private static int clientCount = 0;
     private static Path serverPath;
     private static List<Path> serverFiles;
-    private static byte signalFileTransferByte = 11;
+
 
     public NIOServer() throws IOException {
         serverFiles = new ArrayList<>();
@@ -90,12 +90,7 @@ public class NIOServer implements Runnable {
             downloadFile(message.toString(), channel);
 
         }
-//            for (SelectionKey send : key.selector().keys()) {
-//                if (send.channel() instanceof SocketChannel && send.isReadable()) {
-//                    downloadFile(message.toString(), ((SocketChannel) send.channel()));
-//                }
-//            }
-//        }
+
 
     }
 

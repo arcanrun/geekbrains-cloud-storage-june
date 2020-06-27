@@ -1,38 +1,39 @@
 package NIOServer;
 
-
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
-import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.channels.SocketChannel;
+import java.nio.channels.*;
+
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
+import java.util.Iterator;
 
 public class NIOClient extends JFrame implements ActionListener {
-
     private static SocketChannel socketChannel;
-    private static InetSocketAddress address;
+    private String fileToDownload;
+    private FileChannel fileChannel;
     private JButton btnDownload;
     private JList<String> listOfFilesOnServer;
-    private ByteBuffer buf;
+    private ByteBuffer buffer;
     private DefaultListModel<String> listModel;
     private JPanel mainPanel;
     private Path fileSaverPath;
 
 
-    public NIOClient() {
+    private static Selector selector;
+
+    public NIOClient() throws IOException {
+        buffer = ByteBuffer.allocate(256);
+        fileSaverPath = Paths.get("client", "src", "main", "resources", "clientPath");
         prepareGui();
         connect();
-        buf = ByteBuffer.allocate(256);
-        fileSaverPath = Paths.get("client", "src", "main", "resources", "clientPath");
         setVisible(true);
     }
 
@@ -58,72 +59,95 @@ public class NIOClient extends JFrame implements ActionListener {
         add(mainPanel);
     }
 
-    public void connect() {
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
+
+    private void connect() throws IOException {
+        socketChannel = SocketChannel.open();
+        socketChannel.configureBlocking(false);
+        socketChannel.connect(new InetSocketAddress("localhost", 8189));
+        selector = Selector.open();
+        socketChannel.register(selector, SelectionKey.OP_CONNECT, "CLIENT");
+
+
+        new Thread(() -> {
+            Iterator<SelectionKey> iterator;
+            SelectionKey key;
+            while (true) {
                 try {
-                    address = new InetSocketAddress("localhost", 8189);
-                    socketChannel = SocketChannel.open(address);
-                    StringBuilder filesListStr = new StringBuilder();
-                    int read = socketChannel.read(buf);
-                    while (read != -1) {
-                        buf.flip();
-                        byte firstByte = buf.get();
-                        System.out.println("-->" + firstByte);
-                        if (firstByte == 11) {
-                            while (buf.hasRemaining()) {
-                                filesListStr.append((char) buf.get());
-                            }
-                            String[] listOfFiles = filesListStr.toString().split(",");
-                            for (String str : listOfFiles) {
-                                listModel.addElement(str.trim());
-                            }
-                            break;
+                    selector.select();
+                    iterator = selector.selectedKeys().iterator();
+                    while (iterator.hasNext()) {
+                        key = iterator.next();
+                        iterator.remove();
+                        if (key.isConnectable()) {
+                            handleConnect(key);
                         }
-
-                        if (firstByte == 12) {
-                            //download file
-                            int fileNameLength = buf.get();
-                            StringBuilder fileName = new StringBuilder();
-//                            System.out.println(fileNameLength);
-//                            for (int i = 0; i < fileNameLength; i++) {
-//                                fileName.append((char) buf.get());
-//                            }
-                            System.out.println("FILE NAME: " + fileName.toString());
-                            RandomAccessFile raf = new RandomAccessFile(fileSaverPath + File.separator + fileName, "rw");
-
-                            FileChannel channel = raf.getChannel();
-
-                            while (true)
-                                channel.write(buf);
-
-
+                        if (key.isReadable()) {
+                            handleRead(key);
                         }
-
-                        if (firstByte == 13) {
-                            //error msg
-
-                        }
-
-
-                        buf.clear();
-                        read = socketChannel.read(buf);
                     }
-
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
+
             }
         }).start();
 
+    }
+
+    private void handleRead(SelectionKey key) throws IOException {
+        SocketChannel socketChannel = (SocketChannel) key.channel();
+        buffer.clear();
+        int read = socketChannel.read(buffer);
+        buffer.flip();
+        //signal byte
+        int firstByte = buffer.get();
+        System.out.println("firstByte: " + firstByte);
+
+        if (firstByte == 11) {
+            StringBuilder filesListStr = new StringBuilder();
+            while (read > 0) {
+                while (buffer.hasRemaining()) {
+                    filesListStr.append((char) buffer.get());
+                }
+                buffer.clear();
+                read = socketChannel.read(buffer);
+                buffer.flip();
+            }
+            String[] listOfFiles = filesListStr.toString().split(",");
+            for (String str : listOfFiles) {
+                listModel.addElement(str.trim());
+            }
+
+        }
+        if (firstByte == 12) {
+            try {
+                while (read > 0) {
+                    while (buffer.hasRemaining()) {
+                        if(buffer.position() != 1){
+                            buffer.position(1);
+                        }
+                        fileChannel.write(buffer);
+                    }
+                    buffer.clear();
+                    read = socketChannel.read(buffer);
+                    buffer.flip();
+
+                }
+
+
+            } catch (IOException ioException) {
+                ioException.printStackTrace();
+            }
+        }
 
     }
 
+    private void handleConnect(SelectionKey key) throws IOException {
+        SocketChannel serverSocketChannel = ((SocketChannel) key.channel());
+        serverSocketChannel.finishConnect();
+        serverSocketChannel.register(selector, SelectionKey.OP_READ, "Server");
+        serverSocketChannel.write(ByteBuffer.wrap("Hello from client!".getBytes()));
 
-    public static void main(String[] args) {
-
-        new NIOClient();
     }
 
     @Override
@@ -132,49 +156,31 @@ public class NIOClient extends JFrame implements ActionListener {
         if (src == btnDownload) {
             String selectedFile = listOfFilesOnServer.getSelectedValue();
 
-
             if (selectedFile != null) {
+
                 try {
                     socketChannel.write(ByteBuffer.wrap(selectedFile.getBytes()));
-                    ByteBuffer byteBuffer = ByteBuffer.allocate(256);
-                    int read = socketChannel.read(byteBuffer);
-
-                    byteBuffer.flip();
-
-                    int firstByte = byteBuffer.get();
-                    System.out.println(firstByte);
-
-                    int fileNameLength = byteBuffer.get();
-                    StringBuilder fileName = new StringBuilder();
-                    System.out.println(fileNameLength);
-
-                    for (int i = 0; i < fileNameLength; i++) {
-                        fileName.append((char) byteBuffer.get());
-                    }
-
-                    System.out.println("FILE NAME: " + fileName.toString());
-
-                    RandomAccessFile raf = new RandomAccessFile(fileSaverPath.resolve(fileName.toString()).toString(), "rw");
-                    FileChannel fileChannel = raf.getChannel();
-
-                    while (read > 0) {
-                        while (byteBuffer.hasRemaining()) {
-                            fileChannel.write(byteBuffer);
-                        }
-                        byteBuffer.clear();
-                        read = socketChannel.read(byteBuffer);
-                        byteBuffer.flip();
-                    }
-                    fileChannel.close();
-                    byteBuffer.clear();
-
-
+                    setFileToDownload(selectedFile);
                 } catch (IOException ioException) {
                     ioException.printStackTrace();
                 }
-            }
 
+            }
         }
     }
-}
 
+    public void setFileToDownload(String fileToDownload) {
+        this.fileToDownload = fileToDownload;
+        RandomAccessFile raf = null;
+        try {
+            raf = new RandomAccessFile(fileSaverPath.resolve(this.fileToDownload).toString(), "rw");
+        } catch (FileNotFoundException e) {
+            e.printStackTrace();
+        }
+        fileChannel = raf.getChannel();
+    }
+
+    public static void main(String[] args) throws IOException {
+        new NIOClient();
+    }
+}
