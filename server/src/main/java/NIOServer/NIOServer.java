@@ -1,8 +1,5 @@
 package NIOServer;
 
-import com.sun.media.jfxmediaimpl.HostUtils;
-
-import java.io.File;
 import java.io.IOException;
 import java.io.RandomAccessFile;
 import java.net.InetSocketAddress;
@@ -13,7 +10,6 @@ import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
-import java.util.RandomAccess;
 
 public class NIOServer implements Runnable {
 
@@ -31,7 +27,7 @@ public class NIOServer implements Runnable {
         ssc.socket().bind(new InetSocketAddress(8189));
         ssc.configureBlocking(false);
         selector = Selector.open();
-        ssc.register(selector, SelectionKey.OP_ACCEPT);
+        ssc.register(selector, SelectionKey.OP_ACCEPT, "SERVER");
         serverPath = Paths.get("server", "src", "main", "resources", "serverPath");
         makeFilesList();
     }
@@ -41,13 +37,17 @@ public class NIOServer implements Runnable {
         try {
             System.out.println("Server started on port: 8189.");
             Iterator<SelectionKey> iterator;
+            // информация о событии
             SelectionKey key;
             while (ssc.isOpen()) {
+                // ожидание события
                 int eventsCount = selector.select();
                 System.out.println("Selected " + eventsCount + " events.");
                 iterator = selector.selectedKeys().iterator();
                 while (iterator.hasNext()) {
+                    //вытаскиваем какое-то событие из списка событий
                     key = iterator.next();
+                    // убираем его их списка событий
                     iterator.remove();
                     if (key.isAcceptable()) {
                         handleAccess(key);
@@ -87,7 +87,6 @@ public class NIOServer implements Runnable {
         } else {
             //message.deleteCharAt(message.length()-1);
             System.out.println(key.attachment() + ">>> " + message);
-
             downloadFile(message.toString(), channel);
 
         }
@@ -101,10 +100,14 @@ public class NIOServer implements Runnable {
     }
 
     private void handleAccess(SelectionKey key) throws IOException {
+        System.out.println(key.attachment());
+        // кто-то подключился, выдергиваем ссылку на сокет канал
         SocketChannel channel = ((ServerSocketChannel) key.channel()).accept();
         clientCount++;
-        String userName = "user#" + clientCount;
+        String userName = "user #" + clientCount;
         channel.configureBlocking(false);
+        // этого клиента регистрируем на селекторе, но SelectionKey.OP_READ - т е мы хотим, чтобы Селектор от этого клиента перехватывал события Read
+        // т е когда он пришлет что-то что стоило бы почитать
         channel.register(selector, SelectionKey.OP_READ, userName);
 
         buffer.put((byte) 11);
@@ -136,15 +139,26 @@ public class NIOServer implements Runnable {
                 if (file.getFileName().toString().equals(fileNameToDownload)) {
 
                     RandomAccessFile raf = new RandomAccessFile(file.toString(), "rw");
-                    FileChannel inChanel = raf.getChannel();
+                    FileChannel fileChannel = raf.getChannel();
                     byte[] fileNameBytes = file.getFileName().toString().getBytes();
+
                     buffer.clear();
                     buffer.put((byte) 12);
-                    buffer.put((byte) fileNameBytes.length);
-                    buffer.put(fileNameBytes);
-                    inChanel.read(buffer);
-                    buffer.flip();
-                    socketChannel.write(buffer);
+                    int read = fileChannel.read(buffer);
+
+                    while (read > 0) {
+                        buffer.flip();
+                        while (buffer.hasRemaining()) {
+                            socketChannel.write(buffer);
+                        }
+
+                        buffer.clear();
+                        System.out.println(read);
+                        buffer.put((byte) 12);
+                        read = fileChannel.read(buffer);
+                    }
+                    fileChannel.close();
+                    System.out.println(read);
 
                     return FileVisitResult.TERMINATE;
                 }
