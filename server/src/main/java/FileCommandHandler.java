@@ -61,7 +61,7 @@ public class FileCommandHandler implements Runnable {
                     FileOutputStream fos = new FileOutputStream(file);
                     for (long i = 0; i <= fileLength / 1024; i++) {
                         int read = in.read(buffer);
-                        System.out.println("bytes readed!");
+                        System.out.println("bytes has been read!");
                         fos.write(buffer, 0, read);
                         fos.flush();
                     }
